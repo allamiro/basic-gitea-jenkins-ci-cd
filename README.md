@@ -1,0 +1,1 @@
+# basic-gitea-jenkins-ci-cd
