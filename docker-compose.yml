@@ -1,0 +1,80 @@
+networks:
+  ci:
+    driver: bridge
+
+volumes:
+  jenkins-data:
+  jenkins-docker-certs:
+
+services:
+  gitea:
+    image: docker.gitea.com/gitea:1.24.5
+    container_name: gitea
+    restart: unless-stopped
+    ports:
+      - "3000:3000"       # Gitea HTTP UI
+      - "2222:22"         # Gitea SSH
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+    volumes:
+      - ./gitea:/data     # Bind mount for Gitea data to ensure correct permissions
+    networks: [ci]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  jenkins-docker:
+    image: docker:dind
+    container_name: jenkins-docker
+    restart: unless-stopped
+    privileged: true
+    environment:
+      - DOCKER_TLS_CERTDIR=/certs
+    command: ["--host=tcp://0.0.0.0:2376","--host=unix:///var/run/docker.sock","--storage-driver","overlay2"]
+    networks:
+      ci:
+        aliases: [docker]
+    volumes:
+      - jenkins-docker-certs:/certs/client
+      - jenkins-data:/var/jenkins_home
+    healthcheck:
+      test: ["CMD","docker","info"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  jenkins:
+    build:
+      context: .
+      dockerfile: Dockerfile.jenkins
+    container_name: jenkins
+    restart: unless-stopped
+    depends_on:
+      jenkins-docker:
+        condition: service_healthy
+    environment:
+      - DOCKER_HOST=tcp://docker:2376
+      - DOCKER_CERT_PATH=/certs/client
+      - DOCKER_TLS_VERIFY=1
+      - JAVA_OPTS=-Djenkins.install.runSetupWizard=true
+    ports:
+      - "8081:8080"       # Jenkins UI
+      - "50000:50000"     # Optional for inbound agents
+    volumes:
+      - jenkins-data:/var/jenkins_home
+      - jenkins-docker-certs:/certs/client:ro
+      - ./site:/srv/web:z   # Jenkins writes the website here
+    networks: [ci]
+
+  nginx:
+    image: nginx:stable
+    container_name: web
+    restart: unless-stopped
+    ports:
+      - "8080:80"         # Public site
+    volumes:
+      - ./site:/usr/share/nginx/html:ro,z # Nginx serves the website from here
+    networks: [ci]

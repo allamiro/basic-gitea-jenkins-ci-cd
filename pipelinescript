@@ -1,0 +1,34 @@
+pipeline {
+    agent any
+    environment {
+        TARGET = "/srv/web"
+    }
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: 'main',
+                    url: 'http://cicd.local.domain:3000/allamiro/web.git',
+                    credentialsId: 'git tea token'
+            }
+        }
+        stage('Publish to Nginx') {
+            steps {
+                sh '''#!/bin/bash
+                  set -eux
+                  echo "Workspace: $(pwd)"
+                  echo "Repo contents:"
+                  ls -la
+                  echo "TARGET: $TARGET"
+
+                  mkdir -p "$TARGET"
+                  rm -rf "$TARGET"/*
+                  cp -r site/* "$TARGET"/
+                '''
+            }
+        }
+    }
+    post {
+        success { echo 'Publish successful' }
+        failure { echo 'Publish failed' }
+    }
+}
